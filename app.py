@@ -327,7 +327,7 @@ with cancel_tab:
 
     if search_name:
         df = load_df()
-        def normalize_name(s): return str(s).strip().replace("　"," ").lower()
+        normalize_name = lambda s: str(s).strip().replace("　"," ").lower()
         target_df = df[df["user_name"].apply(lambda x: normalize_name(x) == normalize_name(search_name))]
         
         if target_df.empty:
@@ -338,18 +338,19 @@ with cancel_tab:
             if st.button(f"{search_name} の予約をキャンセル"):
                 ws = get_worksheet()
                 all_values = ws.get_all_values()  # ヘッダー含む
-                def normalize_name(s): return str(s).strip().replace("　"," ").lower()
 
-                # 削除対象行番号（ヘッダー含む1-indexed）
                 row_indices_to_delete = [
                     i+1 for i, row in enumerate(all_values)
-                    if normalize_name(row[1]) == normalize_name(search_name)  # user_name は2列目 (index=1)
+                    if len(row) > 1 and normalize_name(row[1]) == normalize_name(search_name)
                 ]
 
                 if not row_indices_to_delete:
                     st.info("削除対象が見つかりません。")
                 else:
                     for idx in reversed(row_indices_to_delete):
-                        ws.delete_row(idx)
+                        try:
+                            ws.delete_row(idx)
+                        except Exception as e:
+                            st.error(f"行 {idx} の削除に失敗: {e}")
                     st.success(f"{search_name} の予約を削除しました。")
                     load_df.clear()  # キャッシュクリア
