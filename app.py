@@ -82,7 +82,7 @@ def load_df() -> pd.DataFrame:
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
-        df = pd.DataFrame(columns=["timestamp", "user_name", "date", "place", "start", "end", "priority", "remarks"])  # remarks追加
+        df = pd.DataFrame(columns=["timestamp", "user_name", "date", "place", "start", "end", "priority", "remarks"])  # 追加箇所
     for c in ["date", "start", "end"]:
         if c in df.columns:
             df[c] = df[c].astype(str)
@@ -189,6 +189,7 @@ with user_tab:
 
     name = st.text_input("お名前（必須）")
 
+    #追加箇所
     remarks = st.text_area(
     "希望理由・備考（任意）",
     placeholder="希望理由や備考があれば入力してください",
@@ -240,7 +241,7 @@ with user_tab:
         else:
             ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
             rows = [
-                [ts, name_input, d1, p1, s1, e1, 1, remarks],
+                [ts, name_input, d1, p1, s1, e1, 1, remarks],#修正箇所
                 [ts, name_input, d2, p2, s2, e2, 2, remarks],
                 [ts, name_input, d3, p3, s3, e3, 3, remarks],
             ]
@@ -333,7 +334,7 @@ with cancel_tab:
         if target_df.empty:
             st.info("該当する予約はありません。")
         else:
-            st.dataframe(target_df[["date","place","start","end","priority","remarks"]], use_container_width=True)
+            st.dataframe(target_df[["date","place","start","end","priority","remarks"]], use_container_width=True)#修正箇所
 
             if st.button(f"{search_name} の予約をキャンセル"):
                 ws = get_worksheet()
