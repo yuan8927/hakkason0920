@@ -349,7 +349,7 @@ with cancel_tab:
                 else:
                     for idx in reversed(row_indices_to_delete):
                         try:
-                            ws.delete_row(idx)
+                            ws.delete_rows(idx)
                         except Exception as e:
                             st.error(f"行 {idx} の削除に失敗: {e}")
                     st.success(f"{search_name} の予約を削除しました。")
