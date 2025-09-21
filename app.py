@@ -270,3 +270,35 @@ with admin_tab:
                         )
                 except Exception as ex:
                     st.error(f"{d} の生成に失敗: {ex}")
+                    
+with st.tab("確認＆キャンセル"):
+    st.subheader("予約確認・キャンセル")
+
+    search_name = st.text_input("名前で検索", "")
+
+    if search_name:
+        df = load_df()
+        # 名前正規化して検索
+        def normalize_name(s):
+            return str(s).strip().replace("　"," ").lower()
+        
+        target_df = df[df["user_name"].apply(lambda x: normalize_name(x) == normalize_name(search_name))]
+        
+        if target_df.empty:
+            st.info("該当する予約はありません。")
+        else:
+            st.dataframe(target_df[["date","place","start","end","priority","remarks"]], use_container_width=True)
+
+            if st.button(f"{search_name} の予約をキャンセル"):
+                ws = get_worksheet()
+                # Google Sheets 側で該当行を消す
+                all_records = ws.get_all_records()
+                # 削除対象行番号を取得
+                row_indices_to_delete = [
+                    i+2 for i, r in enumerate(all_records) 
+                    if normalize_name(r.get("user_name","")) == normalize_name(search_name)
+                ]
+                for row_idx in reversed(row_indices_to_delete):  # 下から削除すると行番号ずれない
+                    ws.delete_row(row_idx)
+                st.success(f"{search_name} の予約を削除しました。")
+                load_df.clear()  # キャッシュクリア
