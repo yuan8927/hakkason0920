@@ -24,6 +24,7 @@ ALLOWED_PLACES: List[str] = list(APP_SECRETS.get("allowed_places", ["メイン�
 DAY_START = APP_SECRETS.get("day_start", "09:00")
 DAY_END = APP_SECRETS.get("day_end", "18:00")
 GSHEET_ID = APP_SECRETS.get("gsheet_id", "")
+ADMIN_PASSWORD = APP_SECRETS.get("admin_password", "")
 
 # =============== Google Sheets 接続 ===============
 @st.cache_resource(show_spinner=False)
@@ -75,7 +76,7 @@ def append_rows(ws, rows: list[list[str]]):
 
 
 @st.cache_data(ttl=30)
-def load_df() -> pd.DataFrame:   ###多少変更した
+def load_df() -> pd.DataFrame:
     ws = get_worksheet()  # ← ここで取得
 
     records = ws.get_all_records()
@@ -170,8 +171,9 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
 
 # =============== UI ===============
 st.set_page_config(page_title="施設利用希望フォーム", layout="wide")
-st.title("施設利用希望 収集・管理アプリ")
+st.title("大学祭発表団体募集フォーム")
 
+# Worksheet はここで一度取得（ユーザ送信時に使用）
 ws = get_worksheet()
 
 # タブをまとめて作成
@@ -182,7 +184,8 @@ user_tab, admin_tab, cancel_tab = st.tabs([
 ])
 
 with user_tab:
-    st.caption("※ 第1〜第3希望はすべて必須です。時間は15分刻みで選択してください。")
+    st.caption("※ 第1〜第3希望はすべて必須です。時間は15分刻みで選択してください。\n" 
+               "時間は準備・撤収も含めて設定してください。")
 
     name = st.text_input("お名前（必須）")
 
@@ -191,6 +194,7 @@ with user_tab:
     placeholder="希望理由や備考があれば入力してください",
     height=120
     )
+
 
     def hope_block(title: str):
         st.subheader(title)
@@ -217,15 +221,13 @@ with user_tab:
         if not name_input:
             errors.append("お名前は必須です。")
         else:
-            ###多少変更した
-            #名前の重複チェック
-            #  ※ 正規化して比較（前後/連続スペース、全角→半角スペース、大小文字差を吸収）
-            def normalize_name(s:str) -> str:
-                s = str(s).strip().replace("　"," ")
+            # 名前の重複チェック（正規化して比較）
+            def normalize_name(s: str) -> str:
+                s = str(s).strip().replace("　", " ")
                 s = " ".join(s.split())
                 return s.lower()
 
-            existing_names = [r.get("user_name","") for r in ws.get_all_records()]
+            existing_names = [r.get("user_name", "") for r in ws.get_all_records()]
             existing_norm = {normalize_name(n) for n in existing_names}
             if normalize_name(name_input) in existing_norm:
                 errors.append(f"この名前「{name_input}」は既に登録されています。別の名前を入力してください。")
@@ -249,30 +251,105 @@ with user_tab:
             except Exception as ex:
                 st.error(f"送信に失敗しました: {ex}")
 
+# --- 管理タブ（パスワード保護） ---
 with admin_tab:
-    st.subheader("データ一覧（最新）")
-    df = load_df()
-    st.dataframe(df, use_container_width=True)
+    st.subheader("管理（一覧・Excel出力）")
 
-    st.divider()
-    st.subheader("Excel 出力（ガントチャート風）")
-    selectable_dates = sorted(df["date"].dropna().unique().tolist()) if not df.empty else []
-    target_dates = st.multiselect("作成する日付を選択", options=selectable_dates, default=selectable_dates)
+    # セッションステートで認証情報を管理
+    if "admin_auth" not in st.session_state:
+        st.session_state["admin_auth"] = False
+    if "admin_msg" not in st.session_state:
+        st.session_state["admin_msg"] = ""
 
-    if st.button("選択した日付のExcelを作成"):
-        if not target_dates:
-            st.warning("対象日付がありません。")
+    if st.session_state["admin_auth"]:
+        # ログアウトボタン
+        col_l, col_r = st.columns([1, 6])
+        with col_l:
+            if st.button("ログアウト"):
+                st.session_state["admin_auth"] = False
+                st.session_state["admin_msg"] = "ログアウトしました。"
+        with col_r:
+            if st.session_state.get("admin_msg"):
+                st.info(st.session_state["admin_msg"])
+
+        # 認証済みなら管理画面を表示
+        df = load_df()
+        st.subheader("データ一覧（最新）")
+        st.dataframe(df, use_container_width=True)
+
+        st.divider()
+        st.subheader("Excel 出力（ガントチャート風）")
+        selectable_dates = sorted(df["date"].dropna().unique().tolist()) if not df.empty else []
+        target_dates = st.multiselect("作成する日付を選択", options=selectable_dates, default=selectable_dates)
+
+        if st.button("選択した日付のExcelを作成"):
+            if not target_dates:
+                st.warning("対象日付がありません。")
+            else:
+                for d in target_dates:
+                    try:
+                        path = make_excel_by_date(df, d)
+                        with open(path, "rb") as f:
+                            st.download_button(
+                                label=f"{d} のExcelをダウンロード",
+                                file_name=path,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                data=f.read(),
+                            )
+                    except Exception as ex:
+                        st.error(f"{d} の生成に失敗: {ex}")
+
+    else:
+        # 認証フォーム（パスワード入力）
+        st.info("管理画面を表示するにはパスワードが必要です。")
+        pwd = st.text_input("管理パスワード", type="password", key="admin_pwd_input")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("ログイン"):
+                # 管理パスワードが設定されていない場合は警告
+                if not ADMIN_PASSWORD:
+                    st.error("管理パスワードが未設定です。Streamlit の Secrets（app.admin_password）にパスワードを設定してください。")
+                else:
+                    if pwd == ADMIN_PASSWORD:
+                        st.session_state["admin_auth"] = True
+                        st.session_state["admin_msg"] = "認証に成功しました。"
+                        st.rerun()  # 認証後に画面を再描画して管理画面を表示
+                    else:
+                        st.error("パスワードが違います。")
+        with col2:
+            if st.button("キャンセル"):
+                st.session_state["admin_msg"] = ""
+                st.rerun()
+
+with cancel_tab:
+    st.subheader("予約確認・キャンセル")
+    search_name = st.text_input("名前で検索", "")
+
+    if search_name:
+        df = load_df()
+        def normalize_name(s): return str(s).strip().replace("　"," ").lower()
+        target_df = df[df["user_name"].apply(lambda x: normalize_name(x) == normalize_name(search_name))]
+        
+        if target_df.empty:
+            st.info("該当する予約はありません。")
         else:
-            for d in target_dates:
-                try:
-                    path = make_excel_by_date(df, d)
-                    with open(path, "rb") as f:
-                        st.download_button(
-                            label=f"{d} のExcelをダウンロード",
-                            file_name=path,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            data=f.read(),
-                        )
-                except Exception as ex:
-                    st.error(f"{d} の生成に失敗: {ex}")
-                    
+            st.dataframe(target_df[["date","place","start","end","priority","remarks"]], use_container_width=True)
+
+            if st.button(f"{search_name} の予約をキャンセル"):
+                ws = get_worksheet()
+                all_values = ws.get_all_values()  # ヘッダー含む
+                def normalize_name(s): return str(s).strip().replace("　"," ").lower()
+
+                # 削除対象行番号（ヘッダー含む1-indexed）
+                row_indices_to_delete = [
+                    i+1 for i, row in enumerate(all_values)
+                    if normalize_name(row[1]) == normalize_name(search_name)  # user_name は2列目 (index=1)
+                ]
+
+                if not row_indices_to_delete:
+                    st.info("削除対象が見つかりません。")
+                else:
+                    for idx in reversed(row_indices_to_delete):
+                        ws.delete_row(idx)
+                    st.success(f"{search_name} の予約を削除しました。")
+                    load_df.clear()  # キャッシュクリア
